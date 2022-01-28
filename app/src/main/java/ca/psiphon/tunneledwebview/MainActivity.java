@@ -70,11 +70,17 @@ public class MainActivity extends AppCompatActivity
     private ArrayAdapter<String> mLogMessages;
     private AtomicInteger mLocalHttpProxyPort;
 
-    private PsiphonTunnel mPsiphonTunnel;
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        ((TunneledWebViewApplication)getApplication()).setPsiphonCallbackProxy(null);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ((TunneledWebViewApplication) getApplication()).setPsiphonCallbackProxy(this);
+
         setContentView(R.layout.activity_main);
 
         mListView = (ListView)findViewById(R.id.listView);
@@ -82,38 +88,21 @@ public class MainActivity extends AppCompatActivity
         WebSettings webSettings = mWebView.getSettings();
         webSettings.setJavaScriptEnabled(true);
 
-        mLogMessages = new ArrayAdapter<String>(
+        mLogMessages = new ArrayAdapter<>(
                 this, R.layout.log_message, R.id.logMessageTextView);
 
         mListView.setAdapter(mLogMessages);
 
         mLocalHttpProxyPort = new AtomicInteger(0);
 
-        mPsiphonTunnel = PsiphonTunnel.newPsiphonTunnel(this);
         Button recreateButton = findViewById(R.id.recreateButton);
+
         recreateButton.setOnClickListener(view -> {
-            try {
-                mPsiphonTunnel.restartPsiphon();
-                recreate();
-            } catch (PsiphonTunnel.Exception e) {
-                logMessage("failed to restart Psiphon");
-            }
+            ((TunneledWebViewApplication) getApplication()).restartPsiphon();
+            recreate();
         });
-
-        // Start Psiphon tunnel immediately
-        try {
-            mPsiphonTunnel.startTunneling("");
-        } catch (PsiphonTunnel.Exception e) {
-            logMessage("failed to start Psiphon");
-        }
     }
 
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        mPsiphonTunnel.stop();
-    }
 
     private void setHttpProxyPort(int port) {
 
@@ -135,65 +124,33 @@ public class MainActivity extends AppCompatActivity
         // called directly from these threads. Here we use runOnUiThread
         // to handle this.
 
-        runOnUiThread(new Runnable() {
-            public void run() {
-                WebViewProxySettings.setLocalProxy(
-                        MainActivity.this, mLocalHttpProxyPort.get());
-                mWebView.loadUrl("https://freegeoip.app/");
-            }
+        runOnUiThread(() -> {
+            WebViewProxySettings.setLocalProxy(
+                    MainActivity.this, mLocalHttpProxyPort.get());
+            mWebView.loadUrl("https://freegeoip.app/");
         });
     }
 
     private void logMessage(final String message) {
-        runOnUiThread(new Runnable() {
-            public void run() {
-                mLogMessages.add(message);
-                mListView.setSelection(mLogMessages.getCount() - 1);
-            }
+        runOnUiThread(() -> {
+            mLogMessages.add(message);
+            mListView.setSelection(mLogMessages.getCount() - 1);
         });
     }
 
-    //----------------------------------------------------------------------------------------------
-    // PsiphonTunnel.TunneledApp implementation
-    //
-    // NOTE: these are callbacks from the Psiphon Library
-    //----------------------------------------------------------------------------------------------
-
     @Override
     public String getAppName() {
-        return "TunneledWebView Sample";
-    }
-
-    @Override
-    public Context getContext() {
-        return this;
-    }
-
-    @Override
-    public Object getVpnService() {
         return null;
     }
 
     @Override
-    public Object newVpnServiceBuilder() {
+    public Context getContext() {
         return null;
     }
 
     @Override
     public String getPsiphonConfig() {
-        try {
-            JSONObject config = new JSONObject(
-                    readInputStreamToString(
-                            getResources().openRawResource(R.raw.psiphon_config)));
-
-            return config.toString();
-
-        } catch (IOException e) {
-            logMessage("error loading Psiphon config: " + e.getMessage());
-        } catch (JSONException e) {
-            logMessage("error loading Psiphon config: " + e.getMessage());
-        }
-        return "";
+        return null;
     }
 
     @Override
@@ -210,29 +167,14 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    public void onSocksProxyPortInUse(int port) {
-        logMessage("local SOCKS proxy port in use: " + Integer.toString(port));
-    }
-
-    @Override
-    public void onHttpProxyPortInUse(int port) {
-        logMessage("local HTTP proxy port in use: " + Integer.toString(port));
-    }
-
-    @Override
     public void onListeningSocksProxyPort(int port) {
-        logMessage("local SOCKS proxy listening on port: " + Integer.toString(port));
+        logMessage("local SOCKS proxy listening on port: " + port);
     }
 
     @Override
     public void onListeningHttpProxyPort(int port) {
-        logMessage("local HTTP proxy listening on port: " + Integer.toString(port));
+        logMessage("local HTTP proxy listening on port: " + port);
         setHttpProxyPort(port);
-    }
-
-    @Override
-    public void onUpstreamProxyError(String message) {
-        logMessage("upstream proxy error: " + message);
     }
 
     @Override
@@ -245,27 +187,6 @@ public class MainActivity extends AppCompatActivity
         logMessage("connected");
         loadWebView();
     }
-
-    @Override
-    public void onHomepage(String url) {
-        logMessage("home page: " + url);
-    }
-
-    @Override
-    public void onClientUpgradeDownloaded(String filename) {
-        logMessage("client upgrade downloaded");
-    }
-
-    @Override
-    public void onClientIsLatestVersion() {
-
-    }
-
-    @Override
-    public void onUntunneledAddress(String address) {
-        logMessage("untunneled address: " + address);
-    }
-
     @Override
     public void onBytesTransferred(long sent, long received) {
         logMessage("bytes sent: " + Long.toString(sent));
@@ -273,43 +194,7 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    public void onStartedWaitingForNetworkConnectivity() {
-        logMessage("waiting for network connectivity...");
-    }
-
-    @Override
-    public void onStoppedWaitingForNetworkConnectivity() {
-        logMessage("finished waiting for network connectivity...");
-    }
-
-    @Override
-    public void onActiveAuthorizationIDs(List<String> authorizations) {
-
-    }
-
-    @Override
-    public void onExiting() {
-
-    }
-
-    @Override
     public void onClientRegion(String region) {
         logMessage("client region: " + region);
-    }
-
-    private static String readInputStreamToString(InputStream inputStream) throws IOException {
-        return new String(readInputStreamToBytes(inputStream), "UTF-8");
-    }
-
-    private static byte[] readInputStreamToBytes(InputStream inputStream) throws IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        int readCount;
-        byte[] buffer = new byte[16384];
-        while ((readCount = inputStream.read(buffer, 0, buffer.length)) != -1) {
-            outputStream.write(buffer, 0, readCount);
-        }
-        outputStream.flush();
-        inputStream.close();
-        return outputStream.toByteArray();
     }
 }
